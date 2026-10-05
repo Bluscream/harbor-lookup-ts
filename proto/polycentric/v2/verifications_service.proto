@@ -1,0 +1,109 @@
+syntax = "proto3";
+package polycentric.v2;
+
+import "polycentric/v2/common.proto";
+import "polycentric/v2/event_key.proto";
+import "polycentric/v2/events.proto";
+
+// Separate from verifications.proto: that file is imported by content.proto,
+// so importing events.proto (for EventBundle) there would be a cyclic import.
+
+// A claim with the verification state around it, so lists can show each
+// claim's verified status from a single response.
+message VerificationClaimBundle {
+  // The VerificationClaim event.
+  EventBundle claim = 1;
+  // VerificationTarget events published by the claim's owner
+  repeated EventBundle targets = 2;
+  // VerificationVerify events.
+  repeated EventBundle verifies = 3;
+}
+
+message ListVerificationClaimsRequest {
+  string claimed_by_identity = 1;
+}
+
+message ListVerificationClaimsResponse {
+  repeated VerificationClaimBundle claim_bundles = 1;
+  // Additional events that may be helpful, like relevant identity and profiles 
+  repeated EventHint event_hints = 2;
+}
+
+message ListVerificationTargetsRequest {
+  EventKey claim_event_key = 1;
+}
+
+message ListVerificationTargetsResponse {
+  // VerificationTarget events for the claim, published by the claim's
+  // owner — who has been asked to verify.
+  repeated EventBundle event_bundles = 1;
+  // Additional events that may be helpful, like relevant identity and profiles 
+  repeated EventHint event_hints = 2;
+}
+
+message ListVerificationVerifiesRequest {
+  EventKey claim_event_key = 1;
+}
+
+message ListVerificationVerifiesResponse {
+  // VerificationVerify events for the claim.
+  repeated EventBundle event_bundles = 1;
+  // Additional events that may be helpful, like relevant identity and profiles 
+  repeated EventHint event_hints = 2;
+}
+
+message ListTargetedVerificationClaimsRequest {
+  string target_identity = 1;
+}
+
+message ListTargetedVerificationClaimsResponse {
+  // Claims whose owner targeted `target_identity`. The 'inbox'.
+  repeated VerificationClaimBundle claim_bundles = 1;
+  // Additional events that may be helpful, like relevant identity and profiles 
+  repeated EventHint event_hints = 2;
+}
+
+// Reverse lookup: find the identities that claim something, starting from the
+// claim's field values rather than from an identity. Answers "who claims this
+// (e.g. this platform channel, this occupation), verified by a trusted party?"
+// — the inverse of the identity-keyed queries above. Works for any claim type.
+message ResolveVerifiedClaimsRequest {
+  // Optional type scope: restrict to claims of exactly this schema, by the
+  // schema's content digest. Unset (or empty value) = any schema. This is the
+  // schema's content-addressed identifier; it only groups cross-client when
+  // claimants pin identical canonical schema bytes.
+  ContentDigest schema_digest = 1;
+  // Field key/value pairs a claim's (STRING) fields must contain, matched by
+  // JSONB containment. A claim matches only when it contains every supplied
+  // pair (AND); it may carry additional fields. A claim missing any supplied
+  // field does not match. May be empty when `schema_digest` scopes the query.
+  map<string, string> fields = 2;
+  // Only return claims that carry a VerificationVerify authored by one of
+  // these identities (the trust roots). Required and non-empty — this is what
+  // makes a match "verified" rather than merely "claimed".
+  repeated string verified_by_identities = 3;
+}
+
+message ResolveVerifiedClaimsResponse {
+  // Matching claims, each wrapped with its targets and verifies (the verifies
+  // include at least one authored by a trusted identity).
+  repeated VerificationClaimBundle claim_bundles = 1;
+  // Additional events that may be helpful, like relevant identity and profiles
+  repeated EventHint event_hints = 2;
+}
+
+service VerificationsService {
+  // VerificationClaim events published by an identity, with each claim's
+  // targets and verifies.
+  rpc ListVerificationClaims(ListVerificationClaimsRequest) returns (ListVerificationClaimsResponse);
+  // VerificationTarget events for a claim: who has been asked to verify.
+  rpc ListVerificationTargets(ListVerificationTargetsRequest) returns (ListVerificationTargetsResponse);
+  // VerificationVerify events for a claim: who has verified it.
+  rpc ListVerificationVerifies(ListVerificationVerifiesRequest) returns (ListVerificationVerifiesResponse);
+  // Claims whose owner asked `target_identity` for verification, with each
+  // claim's targets and verifies.
+  rpc ListTargetedVerificationClaims(ListTargetedVerificationClaimsRequest) returns (ListTargetedVerificationClaimsResponse);
+  // Reverse lookup: claims matching the given schema + field values that are
+  // verified by a trusted identity, with each claim's targets and verifies.
+  rpc ResolveVerifiedClaims(ResolveVerifiedClaimsRequest) returns (ResolveVerifiedClaimsResponse);
+}

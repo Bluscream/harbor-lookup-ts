@@ -1,0 +1,58 @@
+syntax = "proto3";
+package polycentric.v2;
+
+import "polycentric/v2/common.proto";
+import "polycentric/v2/events.proto";
+
+message ListFollowingRequest {
+  // Identity whose followed identities are returned.
+  string identity = 1;
+  optional PageParams page_params = 2;
+}
+
+message ListFollowersRequest {
+  // Identity whose followers are returned.
+  string identity = 1;
+  optional PageParams page_params = 2;
+}
+
+message SuggestFollowRequest {
+  optional PageParams page_params = 1;
+}
+
+message ListFollowsResponse {
+  // The active (non-tombstoned) Follow events, newest first.
+  repeated EventBundle event_bundles = 1;
+  optional PageInfo page_info = 2;
+  // Relevant events for the users in the follow events
+  repeated EventHint event_hints = 3;
+}
+
+message SuggestFollowResponse {
+  repeated FollowSuggestion suggestions = 1;
+  optional PageInfo page_info = 2;
+  // Contains profile update events for the suggested to-follow identities
+  // (`FollowSuggestion.suggestion`). Note that the identity events for the
+  // to-follow identities can be found in the suggestions.
+  //
+  // Also contains identity, profile update and follow events for the suggested
+  // the identities of those who already follow those identities
+  // (`FollowSuggestion.followers`).
+  repeated EventHint event_hints = 3;
+}
+
+message FollowSuggestion {
+  // Identity (event) to follow.
+  EventBundle suggestion = 1;
+  // Identities that are following the suggested identity.
+  repeated string followers = 2;
+}
+
+service GraphService {
+  // Follow events authored by `identity` — who they follow.
+  rpc ListFollowing(ListFollowingRequest) returns (ListFollowsResponse);
+  // Follow events targeting `identity` — who follows them.
+  rpc ListFollowers(ListFollowersRequest) returns (ListFollowsResponse);
+  // Suggestion what identities to follow.
+  rpc SuggestFollow(SuggestFollowRequest) returns (SuggestFollowResponse);
+}

@@ -1,0 +1,5 @@
+# Only the vendored definitions are in scope; they are read, never linted or breaking-checked
+# here, because they are upstream's to change. See proto/SOURCE.md.
+version: v2
+modules:
+  - path: proto

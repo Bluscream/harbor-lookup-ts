@@ -1,0 +1,30 @@
+# protoc-gen-ts comes from @protobuf-ts/plugin, the same generator Harbor's own js-core uses, so
+# the generated types match upstream's rather than being a second dialect of the same schema.
+#
+# `client_generic` emits a transport-agnostic client, which is what lets this package stay on
+# grpc-web in a browser without pulling in a Node-only gRPC implementation. `long_type_string`
+# keeps 64-bit fields as strings instead of requiring a bigint-aware consumer, and
+# `use_proto_field_name` keeps the wire's snake_case so a field name in a response matches the
+# field name in the .proto.
+#
+# `ts_nocheck` puts `// @ts-nocheck` at the top of each generated file, and it is needed: this
+# project runs `noImplicitOverride`, `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`,
+# and protobuf-ts's output does not compile under them — ~300 errors, none of them ours to fix,
+# all of them regenerated the next time this runs. The suppression is per generated file, not
+# project-wide, and it does not weaken anything outside: `@ts-nocheck` stops checking *inside*
+# the file while its exported types stay intact, so every call site in `src/` is still checked
+# against them as strictly as before.
+#
+# `eslint_disable` is deliberately not passed — the ESLint exemption these files need is narrower
+# than a blanket disable, and it is spelled out with reasons in eslint.config.mjs.
+version: v2
+plugins:
+  - local: protoc-gen-ts
+    out: src/generated
+    opt:
+      - client_generic
+      - long_type_string
+      - use_proto_field_name
+      - ts_nocheck
+inputs:
+  - directory: proto

@@ -1,0 +1,220 @@
+syntax = "proto3";
+package polycentric.v2;
+
+import "polycentric/v2/common.proto";
+import "polycentric/v2/content.proto";
+import "polycentric/v2/event_key.proto";
+import "polycentric/v2/keypair.proto";
+
+// Contains the sequences (of the same event collection) that the current KeyPair is aware of.
+// The order of the sequences is determined by the keys listed in the relevant identity document:
+// The rotation keys first and then the signing keys, with duplicates skipped when they appear again.
+// Use `Identity::deduplicated_keys()` to get the keys in this order.
+message VectorClock {
+  repeated uint64 sequence = 1;
+}
+
+// The application that authored an event.
+message Application {
+  // Human-readable name, e.g. "Harbor".
+  string name = 1;
+  // Reverse-DNS package or bundle identifier, e.g. "org.futo.polycentric".
+  string id = 2;
+  // Version of the application, e.g. "1.2.0".
+  string version = 3;
+  // Website of the application, e.g. "https://harbor.social".
+  string url = 4;
+}
+
+// Event messages reference, but do not include, content
+message Event {
+  // Key for the event
+  EventKey key = 1;
+
+  // Reference to the sequence, of the Identity Collection (1), that holds the identity document
+  uint64 identity_sequence = 2;
+
+  // Vector clock
+  VectorClock vector_clock = 3;
+
+  // Signature of the previous event signed by the same key. Assists in creating
+  // immutable collections.
+  bytes previous_signature = 4;
+
+  // Digest of the content
+  ContentDigest content_digest = 6;
+
+  // Timestamp, in milliseconds, of when the event was created
+  uint64 created_at = 7;
+
+  // RFC 6962 Merkle root over this signer's prior signatures in this collection
+  // (leaf_count = key.sequence - 1). Lets later events attest to the writer's
+  // history; consumed by EventProof for membership verification.
+  bytes previous_root = 8;
+
+  // The application that created the event. Absent when unknown.
+  optional Application application = 9;
+}
+
+message SignedEvent {
+  // Signature of events_bytes below (not the Event message)
+  bytes signature = 1;
+  // Serialized representation of the Event message that is signed against
+  bytes event_bytes = 2;
+}
+
+// Bundle of the SignedEvent and SerializedContent messages
+// We use SerializedContent so that the checksum of the content
+// can be verified
+message EventBundle {
+  SignedEvent signed_event = 1;
+  optional SerializedContent serialized_content = 2;
+  repeated EventProof event_proofs = 3;
+  optional EventMetadata meta = 4;
+}
+
+// Merkle inclusion proof: the SignedEvent in this bundle is the leaf at
+// `leaf_index` in the tree rooted at the `EventProofTarget` identified by
+// `target_signature`.
+message EventProof {
+  bytes target_signature = 1;
+  // Canonical position of this event in the target's tree.
+  uint64 leaf_index = 2;
+  // RFC 6962 audit path: sibling hashes from leaf toward root.
+  repeated bytes audit_path = 3;
+}
+
+// Optional helper data that servers can include to help clients better present
+// information to users.
+message EventMetadata {
+  // This server's estimate for how many replies a post has.
+  optional int32 reply_count = 1;
+  // This server's estimate for the total number of reactions a post has.
+  optional int32 reaction_count = 2;
+  // This server's estimate for the total number of positive reactions a post has.
+  optional int32 upvote_count = 3;
+  // This server's estimate for the total number of negative reactions a post has.
+  optional int32 downvote_count = 4;
+
+  // This server's estimate for the count for each reaction type a post has.
+  repeated ReactionTally emoji_reactions = 5;
+}
+
+// Conveys the number of times a specific reaction was given.
+message ReactionTally {
+  string emoji = 1;
+  bool positive = 2;
+  int32 count = 3;
+}
+
+// Hints are additional events that the server provides that may be
+// useful to the client and avoid additional network requests.
+// For example, a reply to post event could return the root/parent posts along with the
+// most recent profile event
+message EventHint {
+  EventBundle event_bundle = 1;
+}
+
+message ListEventsFilters {
+  // Collection to filter events by
+  optional int32 collection = 1;
+  // Identity key to filter events by
+  string identity = 2;
+  // Filter events to those signed by this public key
+  optional PublicKey signed_by = 3;
+  // Return sequences greater than
+  optional int64 sequence_gt = 4;
+  // Return sequences less than
+  optional int64 sequence_lt = 5;
+  // When an event matches a head's identity, collection, and signer,
+  // only return it if its sequence number is higher than the head
+  repeated EventKey heads = 6;
+}
+
+message ListEventsRequest {
+  // Filters
+  ListEventsFilters filters = 1;
+  // Max number of events to return
+  optional int32 size = 2;
+}
+
+message ListEventsResponse {
+  repeated EventBundle event_bundles = 1;
+  repeated EventHint event_hints = 2;
+}
+
+message PutEventsRequest {
+  repeated EventBundle event_bundles = 1;
+}
+
+// Per-event failure reported by PutEvents. The call as a whole still
+// succeeds — these entries are diagnostic for events the server
+// skipped.
+message PutEventError {
+  // Index of the failed entry in PutEventsRequest.event_bundles.
+  uint32 event_bundle_index = 1;
+  // Human-readable reason mirroring the gRPC Status ingest would
+  // otherwise have returned for this event in isolation.
+  string message = 2;
+}
+
+message PutEventsResponse {
+  // One entry per event the server could not store. Empty when every
+  // event in the request was accepted.
+  repeated PutEventError errors = 1;
+  // Blobs referenced by the events that the server does not have.
+  // Client should upload these.
+  repeated Blob requested_blobs = 2;
+}
+
+message ListHeadsRequest {
+  string identity = 1;
+}
+
+message ListHeadsResponse {
+  // Each event key represents the greatest sequence number
+  // with the same (identity, public key, collection) known by this server
+  repeated EventKey heads = 1;
+}
+
+message GetReactionsRequest {
+  // Event key of the event to get reactions for
+  EventKey target = 1;
+  // Return only reactions with this emoji set
+  optional string emoji_filter = 2;
+  optional PageParams page_params = 3;
+}
+
+message GetReactionsResponse {
+  repeated EventBundle event_bundles = 1;
+  repeated EventHint event_hints = 2;
+  optional PageInfo page_info = 3;
+}
+
+message GetAttributedToReactionCountsRequest {
+  // The attributed target (e.g. a video URL) to get reaction counts for.
+  AttributedTo attributed_to = 1;
+}
+
+message GetAttributedToReactionCountsResponse {
+  // The server's estimate for positive reactions on the target.
+  int64 upvote_count = 1;
+  // The server's estimate for negative reactions on the target.
+  int64 downvote_count = 2;
+}
+
+// Sync between clients and servers
+service EventSyncService {
+  // Returns a list of events (with content) from the server
+  rpc ListEvents(ListEventsRequest) returns (ListEventsResponse);
+  // Add events (with content) from a client to the server
+  rpc PutEvents(PutEventsRequest) returns (PutEventsResponse);
+  // Returns the latest sequence number seen by the server for each
+  // (signing key, collection) for the given identity
+  rpc ListHeads(ListHeadsRequest) returns (ListHeadsResponse);
+  // Get the reactions targeting an event.
+  rpc GetReactions(GetReactionsRequest) returns (GetReactionsResponse);
+  // Get the reaction counts for an out-of-network target (e.g. a video URL).
+  rpc GetAttributedToReactionCounts(GetAttributedToReactionCountsRequest)
+      returns (GetAttributedToReactionCountsResponse);
+}

@@ -1,0 +1,71 @@
+syntax = "proto3";
+package polycentric.v2;
+
+import "polycentric/v2/common.proto";
+import "polycentric/v2/events.proto";
+import "polycentric/v2/server.proto";
+
+enum NotificationKind {
+  NOTIFICATION_KIND_UNSPECIFIED = 0;
+  NOTIFICATION_KIND_FOLLOW = 1;
+  NOTIFICATION_KIND_REPLY = 2;
+  NOTIFICATION_KIND_REPOST = 3;
+  NOTIFICATION_KIND_REACTION = 4;
+  NOTIFICATION_KIND_QUOTE = 5;
+  NOTIFICATION_KIND_VERIFICATION_REQUEST = 6;
+  NOTIFICATION_KIND_VERIFICATION_COMPLETE = 7;
+  NOTIFICATION_KIND_MENTION = 8;
+}
+
+message Notification {
+  // Event that triggered the notification
+  EventBundle trigger_event = 1;
+  // Event that the notification is in relation to
+  EventBundle target_event = 2;
+  // Kind of the notification
+  NotificationKind kind = 3;
+}
+
+message ListNotificationsRequest {
+  string identity = 1;
+  // Return the 1 X number of notifications
+  optional uint32 first = 2;
+  // Return notifications after a cursor
+  optional string after = 3;
+  // Label values for which the requester does not want to see content
+  repeated string omit_labels = 4;
+}
+
+message ListNotificationsResponse {
+  repeated Notification notifications = 1;
+  // Events that help the client resolve with fewer network calls
+  repeated EventHint event_hints = 2;
+  PageInfo page_info = 3;
+}
+
+message RegisterPushNotificationRequest {
+  string service = 1;
+  string token = 2;
+}
+
+message RegisterPushNotificationResponse {}
+
+message UnregisterPushNotificationRequest {
+  string service = 1;
+  string token = 2;
+}
+
+message UnregisterPushNotificationResponse {}
+
+/**
+ * Push notifications provided by polycentric servers
+ */
+service NotificationService {
+  // Returns notifications for a user
+  rpc ListNotifications(ListNotificationsRequest) returns (ListNotificationsResponse);
+  // This endpoint expects a signed RegisterPushNotificationRequest message
+  rpc RegisterPushNotifications(SignedMessage) returns (RegisterPushNotificationResponse);
+
+  // This endpoint expects a signed UnregisterPushNotificationRequest message
+  rpc UnregisterPushNotifications(SignedMessage) returns (UnregisterPushNotificationResponse);
+}

@@ -1,0 +1,224 @@
+syntax = "proto3";
+package polycentric.v2;
+
+import "polycentric/v2/common.proto";
+import "polycentric/v2/event_key.proto";
+import "polycentric/v2/identity.proto";
+import "polycentric/v2/verifications.proto";
+
+// Content of the event
+message Content {
+  oneof content_body {
+    Post post = 2;
+    Delete delete = 3;
+    Follow follow = 4;
+    Block block = 5;
+    Reaction reaction = 6;
+    AttributedToReaction attributed_to_reaction = 15;
+    ProfileUpdate profile_update = 7;
+    Identity identity = 8;
+    Repost repost = 9;
+    Report report = 10;
+    Labels labels = 11;
+    // Verifications (see verifications.proto)
+    VerificationClaim verification_claim = 12;
+    VerificationVerify verification_verify = 13;
+    VerificationTarget verification_target = 14;
+  }
+}
+
+// Serialized content. This is what we do the ContentDigest / Checksum on.
+message SerializedContent {
+  bytes content_bytes = 1;
+}
+
+message Post {
+  // Main text content of the post
+  string text = 1;
+  optional PostReply reply = 2;
+  // Multiple images
+  repeated ImageSet images = 3;
+  optional EventKey quote = 4;
+  // Link previews for URLs in the post text
+  repeated Link links = 5;
+  // Labels the creator / client applies themselves
+  repeated string labels = 6;
+  // If any, where the post is attributed to.
+  repeated AttributedTo attributed_to = 7;
+}
+
+message AttributedTo {
+  oneof to {
+    // Remote resource
+    Link link = 1;
+  }
+}
+
+message PostReply {
+  // Initial post in the reply chain.
+  EventKey root = 1;
+  // Post that is being replied to
+  EventKey parent = 2;
+}
+
+message Link {
+  string title = 1;
+  optional string description = 2;
+  optional string image = 3;
+  string url = 4;
+}
+
+message Repost {
+  optional EventKey post = 1;
+}
+
+// When processed by a server it should check if the data is referenced by any events
+// If the Content is linked elswhere, the DELETE is ignored and the server should keep the data.
+// If the Content is not linked elsewhere then it can be deleted / purged by the server.
+// Essentially, a DELETE means; Ignore (or forget about) the contents of a previous event.
+message Delete {
+  // Event key to be deleted
+  EventKey event_key = 1;
+}
+
+message Follow {
+  string identity = 1;
+}
+
+message Block {
+  string identity = 1;
+}
+
+message Reaction {
+  // Key of the event being reacted to
+  EventKey event_key = 1;
+  // Optional emoji
+  optional string emoji = 2;
+  // Upvote = true. Downvote = false.
+  bool positive = 3;
+}
+
+// A reaction targeting something that is not an in-network event — e.g. a URL
+// (reacting to a video). The out-of-network counterpart of `Reaction`.
+message AttributedToReaction {
+  // What the reaction is attributed to (e.g. a link/URL).
+  AttributedTo attributed_to = 1;
+  // Optional emoji
+  optional string emoji = 2;
+  // Upvote = true. Downvote = false.
+  bool positive = 3;
+}
+
+message ProfileUpdate {
+  // A friendly display name for the user
+  optional string name = 1;
+  // Reference to the Blob for the avatar (support multiple different sizes)
+  optional ImageSet avatar = 2;
+  // Reference to the Blob of a banner (support multiple different sizes)
+  optional ImageSet banner = 3;
+  // Bio
+  optional string description = 4;
+  // A domain-based alias (e.g. user@domain.com) the profile claims for itself.
+  optional string alias = 5;
+}
+
+// If an uploaded Blob is uploaded to the servers Object Storage and not
+// then attached added to the Content repository, the server will delete from Object Storage.
+message Blob {
+  // Digest/Checksum of the blob
+  ContentDigest digest = 1;
+  string mime_type = 2;
+  int64 size = 3;
+}
+
+// Single image with reference to the blob
+message Image {
+  Blob blob = 1;
+  int32 width = 2;
+  int32 height = 3;
+}
+
+// Collection of different variants of an image
+message ImageSet {
+  repeated Image images = 1;
+}
+
+enum ReportCategory {
+  // Report categories that have been retired are kept reserved
+  reserved 2, 4, 5;
+  reserved "REPORT_CATEGORY_ABUSE", "REPORT_CATEGORY_TERRORISM",
+           "REPORT_CATEGORY_ILLEGAL";
+
+  REPORT_CATEGORY_UNSPECIFIED = 0;
+  REPORT_CATEGORY_SPAM = 1;
+  REPORT_CATEGORY_CHILD_SAFETY = 3;
+  REPORT_CATEGORY_COPYRIGHT = 6;
+  REPORT_CATEGORY_SERVER_POLICY = 7;
+  REPORT_CATEGORY_VIOLENCE = 8;
+  REPORT_CATEGORY_SELF_HARM = 9;
+  REPORT_CATEGORY_SEXUALLY_EXPLICIT = 10;
+  REPORT_CATEGORY_HATE = 11;
+}
+
+message Report {
+  // Event that is being reported
+  EventKey event_key = 1;
+  ReportCategory category = 2;
+  string additional_info = 3;
+}
+
+message Labels {
+  // Event that is being labeled
+  EventKey event_key = 1;
+  repeated string label_values = 2;
+}
+
+/**
+ * gRPC requests
+ */
+message SyncContentRequest {
+  // Digest that was created from the serialized content_bytes
+  ContentDigest digest = 1;
+  // Serialized Content message
+  bytes content_bytes = 2;
+}
+
+message SyncContentResponse {}
+
+/**
+ * Request message for upoading a blob
+ */
+message UploadBlobRequest {
+  // Reference message of the blob (mime type, content digest).
+  Blob blob = 1;
+  // Body (content) of the blob
+  bytes body = 2;
+}
+
+message UploadBlobResponse {}
+
+/**
+ * Request message for fetching link metadata for a URL.
+ */
+message UrlInfoRequest {
+  // The URL to fetch metadata for.
+  string url = 1;
+}
+
+/**
+ * Response for UrlInfo: the fetched link-preview metadata.
+ */
+message UrlInfoResponse {
+  optional string title = 1;
+  optional string description = 2;
+  optional string image = 3;
+}
+
+service ContentService {
+  // Synchronises events from a client to the server
+  rpc SyncContent(SyncContentRequest) returns (SyncContentResponse);
+  // Uploads a blob. If the blob is not referenced in a time window, it will be deleted.
+  rpc UploadBlob(UploadBlobRequest) returns (UploadBlobResponse);
+  // Fetches a URL server-side and returns its link preview metadata.
+  rpc UrlInfo(UrlInfoRequest) returns (UrlInfoResponse);
+}

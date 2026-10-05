@@ -1,0 +1,28 @@
+syntax = "proto3";
+package polycentric.v2;
+
+import "polycentric/v2/keypair.proto";
+
+// EventKey's are the unique identitifiers of Events
+message EventKey {
+  // Collection of the stream the event is connected with
+  // Reserved collections are:
+  // 1 -> Polycentric Identity
+  // 2 -> Polycentric feed
+  // 3 -> Polycentric profile
+  // 4 -> Polycentric interactions (likes etc)
+  // 5 -> Polycentric social graph (follows)
+  // 6 -> Polycentric reports
+  // 7 -> Polycentric labels
+  // 8 -> Polycentric verifications
+  int32 collection = 1;
+
+  // Identity Key (sha256 hash of the initial Identity content)
+  string identity = 2;
+
+  // Public key that signed the event
+  PublicKey signed_by = 3;
+
+  // Sequence number of the event in the collection (our logical clock)
+  uint64 sequence = 4;
+}
