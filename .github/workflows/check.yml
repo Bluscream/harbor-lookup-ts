@@ -1,0 +1,73 @@
+name: check
+
+# Disabled: workflows do not run under this account, so an automatic trigger would queue a job that
+# never starts — and anything waiting on it would block forever. Uncomment if you fork this
+# repository; `workflow_dispatch` below is what lets the owner run it by hand.
+#
+# on:
+#   push:
+#     branches: [main]
+#   pull_request:
+#   schedule:
+#     # Weekly, to notice that the vendored protos have drifted from upstream.
+#     - cron: '0 6 * * 1'
+
+on:
+  workflow_dispatch:
+    inputs:
+      refresh-protos:
+        description: 'Refresh proto/ from upstream first, and report what moved'
+        type: boolean
+        default: false
+      live:
+        description: 'Also run the live suite against srv.harbor.social (read-only)'
+        type: boolean
+        default: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Refresh the vendored protos
+        if: ${{ inputs.refresh-protos }}
+        run: ./tools/fetch-protos.sh develop
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Report what moved upstream
+        if: ${{ inputs.refresh-protos }}
+        run: git --no-pager diff --stat -- proto/
+
+      - name: Regenerate, and check nothing changed
+        run: |
+          npm run generate
+          # The generated tree is committed, so a diff here means the committed copy is stale —
+          # either because the protos moved or because the generator version did.
+          git --no-pager diff --exit-code -- src/generated
+
+      - run: npm run format:check
+
+      - run: npm run lint
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+      - run: npm run build
+
+      - name: Check the published package contents
+        run: npm pack --dry-run
+
+      - name: Live suite
+        if: ${{ inputs.live }}
+        run: npm run test:live
